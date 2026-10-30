@@ -1,0 +1,119 @@
+# Safe local default. Hardware mode still requires --confirm-hardware.
+runtime:
+  dry_run: true
+  log_level: INFO
+  status_hz: 10
+
+server:
+  host: 0.0.0.0
+  port: 8443
+  web_dir: web
+  max_ws_message_bytes: 4096
+  allowed_origins: []
+
+tls:
+  enabled: true
+  cert_path: certs/cert.pem
+  key_path: certs/key.pem
+
+robot:
+  ip: 192.168.58.2
+  # Bundled SDK 2.2.8 for robot firmware v3.9.8 (relative to this file).
+  sdk_path: fairino-python-sdk-2.2.8_robot_v3.9.8/linux
+  exaxis_default: [0.0, 0.0, 0.0, 0.0]
+
+timing:
+  servo_period_s: 0.008
+  # ERROR log after this many start/end events occur inside the window.
+  servo_transition_window_s: 1.0
+  servo_transition_limit: 4
+  pose_timeout_s: 0.500
+  worker_watchdog_s: 3.0
+  worker_startup_timeout_s: 30.0
+  graceful_shutdown_s: 1.0
+
+motion:
+  position_scale: 1500.0
+  ema_alpha: 0.2
+  # Time-based speed limit. max_step_mm remains a per-command safety cap.
+  max_velocity_mm_s: 250.0
+  max_step_mm: 5.0
+  workspace:
+    x: [-100.0, 800.0]
+    y: [-600.0, 600.0]
+    z: [-500.0, 700.0]
+
+# Disabled by default. Enable only after controller-side gripper configuration
+# and a low-risk trigger/gripper commissioning test.
+gripper:
+  enabled: false
+  index: 1
+  activate_on_start: true
+  initially_closed: false
+  open_position: 0
+  closed_position: 100
+  velocity: 50
+  force: 50
+  command_max_time_ms: 3000
+  action_timeout_s: 5.0
+  poll_period_s: 0.050
+
+# Rotation teleop. Fairino rx,ry,rz are treated as fixed-angle XYZ
+# (R = Rz*Ry*Rx); roll/pitch/yaw axis and sign were verified on a v3.9.8
+# robot with the current VR->robot axis mapping. The limits below stay
+# conservative.
+orientation:
+  enabled: true
+  # Hand rotation is much freer than intended: halve it and filter it
+  # (EMA per 8 ms tick, time constant ~ 8 ms / ema_alpha = ~100 ms).
+  scale: 0.5
+  ema_alpha: 0.08
+  max_angular_velocity_deg_s: 15.0
+  max_step_deg: 1.0
+  max_deviation_deg: 20.0
+
+# Home return (Quest left X, or /monitor while no Quest holds control).
+# Streams a straight-line ServoCart path from the current TCP to tcp, so the
+# return is recorded with valid commands; the converter excludes it unless
+# --homing include. joints_deg only checks the joint configuration: start is
+# refused beyond max_start_joint_delta_deg, arrival beyond
+# arrive_joint_tolerance_deg is logged. Pose read on the robot 2026-10-26.
+home:
+  enabled: true
+  tcp: [393.416, -122.637, 503.735, -179.441, 1.038, -3.243]   # mm, deg
+  joints_deg: [-3.138, -77.234, -97.088, -96.715, 90.561, -89.895]
+  max_velocity_mm_s: 100.0          # peak; <= motion.max_velocity_mm_s
+  max_angular_velocity_deg_s: 30.0  # peak
+  hold_s: 1.0                       # keep streaming home after arrival
+  max_start_joint_delta_deg: 120.0
+  arrive_joint_tolerance_deg: 5.0
+
+# Raw demonstration recording for LeRobot datasets. Observation-only: the
+# recorder never sends robot commands. Control it from /monitor.
+recording:
+  enabled: true
+  root_dir: recordings
+  # RealSense cameras, each in its own Camera process. Requires
+  # requirements-camera.txt (in the Docker image) and the host udev rules
+  # (sudo bash scripts/install_realsense_udev.sh). Recording refuses to start
+  # while any enabled camera is not streaming. With more than one enabled
+  # RealSense every camera needs its serial (quote it: "123456789012").
+  # source: fake gives synthetic frames for dry-run tests.
+  # name becomes the dataset key observation.images.<name>.
+  cameras:
+    - name: wrist       # wrist D435i
+      enabled: false
+      source: realsense
+      serial: null
+      width: 640
+      height: 480
+      fps: 30
+      depth: false      # 16-bit depth aligned to color, FFV1 lossless
+    - name: top         # fixed top-view D435
+      enabled: false
+      source: realsense
+      serial: null
+      width: 640
+      height: 480
+      fps: 30
+      depth: false

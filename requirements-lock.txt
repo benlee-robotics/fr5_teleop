@@ -1,0 +1,13 @@
+# Runtime dependency lock for the Ubuntu 22.04 / Python 3.10 field bundle.
+aiohappyeyeballs==2.7.1
+aiohttp==3.12.15
+aiosignal==1.4.0
+async-timeout==5.0.1
+attrs==26.1.0
+frozenlist==1.8.0
+idna==3.18
+multidict==6.7.1
+propcache==0.5.2
+PyYAML==6.0.2
+typing_extensions==4.16.0
+yarl==1.24.5

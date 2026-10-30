@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+.venv-*/
+venv/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime secrets and generated TLS files
+
+docs/
+.env
+certs/*.pem
+!certs/.gitkeep
+*.key
+
+# Logs and local runtime state
+*.log
+*.pid
+*.sock
+
+# Vendored Fairino SDK: keep the Linux Python source and metadata only.
+fairino-python-sdk-*/windows/
+fairino-python-sdk-*/**/build/
+fairino-python-sdk-*/**/libfairino/
+fairino-python-sdk-*/**/example/
+fairino-python-sdk-*/**/*.obj
+fairino-python-sdk-*/**/*.o
+fairino-python-sdk-*/**/*.lib
+fairino-python-sdk-*/**/*.exp
+
+# Local packaging output
+build/
+dist/
+release/
+*.egg-info/
+
+# Demonstration recordings (raw episodes and converted datasets)
+recordings/
+datasets/

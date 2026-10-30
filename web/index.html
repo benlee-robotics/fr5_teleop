@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>VR Teleop — FR5</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0a0e17;
+    color: #e0e6f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .card h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #8892a8;
+    margin-bottom: 10px;
+  }
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 0.95rem;
+  }
+  .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+  }
+  .dot.green { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+  .dot.red { background: #ef4444; box-shadow: 0 0 8px #ef444488; }
+  .dot.yellow { background: #eab308; box-shadow: 0 0 8px #eab30888; }
+  .mono {
+    font-family: 'SF Mono', 'Consolas', monospace;
+    font-size: 0.85rem;
+    color: #a5b4fc;
+  }
+  #btn-vr {
+    width: 100%;
+    max-width: 420px;
+    padding: 16px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: white;
+    margin-bottom: 12px;
+    transition: opacity 0.2s;
+  }
+  #btn-vr:hover { opacity: 0.9; }
+  #btn-vr:disabled {
+    background: #374151;
+    color: #6b7280;
+    cursor: not-allowed;
+  }
+  .tracking-active {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.3); }
+    50% { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+  }
+  .instructions {
+    font-size: 0.85rem;
+    color: #8892a8;
+    line-height: 1.6;
+    text-align: center;
+  }
+  .instructions b { color: #a5b4fc; }
+</style>
+</head>
+<body>
+
+<h1>🤖 VR Teleop — FR5</h1>
+
+<button id="btn-vr">🥽 VR 세션 시작</button>
+
+<div class="card" id="card-conn">
+  <h2>연결 상태</h2>
+  <div class="status-row">
+    <span><span class="dot red" id="dot-ws"></span>WebSocket</span>
+    <span class="mono" id="ws-status">연결 안됨</span>
+  </div>
+  <div class="status-row">
+    <span><span class="dot red" id="dot-xr"></span>WebXR</span>
+    <span class="mono" id="xr-status">비활성</span>
+  </div>
+</div>
+
+<div class="card" id="card-ctrl">
+  <h2>컨트롤러</h2>
+  <div class="status-row">
+    <span>그립 (데드맨)</span>
+    <span class="mono" id="grip-status">—</span>
+  </div>
+  <div class="status-row">
+    <span>트리거 (그리퍼)</span>
+    <span class="mono" id="trigger-status">—</span>
+  </div>
+  <div class="status-row">
+    <span>추적 상태</span>
+    <span class="mono" id="track-status">대기</span>
+  </div>
+  <div class="status-row">
+    <span>VR 위치</span>
+    <span class="mono" id="vr-pos">—</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>로봇 TCP 목표</h2>
+  <div class="status-row">
+    <span>X, Y, Z (mm)</span>
+    <span class="mono" id="robot-pos">—</span>
+  </div>
+  <div class="status-row">
+    <span>프레임</span>
+    <span class="mono" id="frame-count">0</span>
+  </div>
+  <div class="status-row">
+    <span>그리퍼</span>
+    <span class="mono" id="gripper-status">비활성</span>
+  </div>
+</div>
+
+<div class="card" id="card-record">
+  <h2>시연 녹화</h2>
+  <div class="status-row">
+    <span>녹화 상태</span>
+    <span class="mono" id="rec-state">—</span>
+  </div>
+  <div class="status-row">
+    <span>다음 task</span>
+    <span class="mono" id="rec-task">—</span>
+  </div>
+  <div class="status-row">
+    <span>마지막 저장</span>
+    <span class="mono" id="rec-last">—</span>
+  </div>
+</div>
+
+<div class="card instructions">
+  <b>그립 버튼</b>을 꾹 누르면 로봇이 손을 따라갑니다.<br>
+  놓으면 정지, 다시 누르면 현재 위치에서 재시작합니다.<br>
+  <b>트리거</b>는 설정된 경우 그리퍼를 전환하며, 이후 grip을 놓았다
+  다시 눌러야 로봇 추적이 재개됩니다.<br>
+  <b>A</b> 녹화 시작 / 성공 저장 · <b>B</b> 실패 저장 ·
+  <b>B 1초</b> 폐기 (오른손). task는 /monitor에서 입력합니다.<br>
+  녹화 중에는 시야 위쪽에 빨간 불이 깜빡이고, 저장되면 초록(성공) 또는
+  주황(실패)으로 바뀝니다.<br>
+  <b>X</b>(왼손)는 grip을 놓은 상태에서 홈 자세로 복귀하고, 복귀 중에 다시
+  누르면 중단합니다. 복귀 뒤에는 grip을 놓았다 다시 눌러야 추적이 재개됩니다.
+</div>
+
+<script src="/static/recording_controls.js"></script>
+<script>
+// ──────────────────────────────────────────
+//  WebSocket
+// ──────────────────────────────────────────
+let ws = null;
+let wsConnected = false;
+let sessionId = null;
+let controllerOwned = false;
+let controlHands = ['right'];
+let poseDropCount = 0;
+let poseSendCount = 0;
+let telemetrySeq = 0;
+let xrFrameCount = 0;
+let validPoseCount = 0;
+let trackingLossCount = 0;
+let lastXrFrameTimeMs = null;
+let lastValidPoseTimeMs = null;
+let maxXrFrameGapMs = 0;
+let maxPoseGapMs = 0;
+let lastRttMs = null;
+let maxRttMs = null;
+const MAX_BUFFERED_BYTES = 64 * 1024;
+
+function resetClientStats() {
+  poseDropCount = 0;
+  poseSendCount = 0;
+  telemetrySeq = 0;
+  xrFrameCount = 0;
+  validPoseCount = 0;
+  trackingLossCount = 0;
+  lastXrFrameTimeMs = null;
+  lastValidPoseTimeMs = null;
+  maxXrFrameGapMs = 0;
+  maxPoseGapMs = 0;
+  lastRttMs = null;
+  maxRttMs = null;
+}
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${proto}://${location.host}/ws`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    wsConnected = true;
+    document.getElementById('dot-ws').className = 'dot green';
+    document.getElementById('ws-status').textContent = '협상 중';
+    console.log('WebSocket 연결됨');
+    refreshVRButton();
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'hello') {
+        sessionId = data.session_id;
+        controlHands = (
+          Array.isArray(data.control_hands) && data.control_hands.length > 0
+            ? data.control_hands
+            : ['right']
+        );
+        resetHandPoseSequences();
+        resetClientStats();
+        controllerOwned = false;
+        document.getElementById('ws-status').textContent = '연결됨';
+        if (xrSession) {
+          sendEvent('webxr_started');
+        }
+        refreshVRButton();
+      } else if (data.type === 'control') {
+        controllerOwned = data.granted === true;
+        if (!controllerOwned) {
+          document.getElementById('track-status').textContent = '다른 controller 사용 중';
+        }
+      } else if (data.type === 'status') {
+        updateStatusUI(data);
+      } else if (data.type === 'telemetry_ack') {
+        const rtt = Math.max(0, performance.now() - data.client_time_ms);
+        lastRttMs = rtt;
+        maxRttMs = maxRttMs === null ? rtt : Math.max(maxRttMs, rtt);
+      } else if (data.type === 'error') {
+        console.warn('Protocol error:', data.message);
+        if (data.code === 'recording_unavailable') {
+          recordFeedback('error', 'error');
+        }
+      }
+    } catch(err) {
+      console.warn('Invalid server message:', err);
+    }
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    sessionId = null;
+    controllerOwned = false;
+    document.getElementById('dot-ws').className = 'dot red';
+    document.getElementById('ws-status').textContent = '끊김';
+    refreshVRButton();
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+function sendEvent(event) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !sessionId) return;
+  ws.send(JSON.stringify({
+    version: 1,
+    type: 'event',
+    session_id: sessionId,
+    event: event
+  }));
+}
+
+// ──────────────────────────────────────────
+//  홈 복귀 (왼손 X 버튼)
+// ──────────────────────────────────────────
+// 누를 때마다 홈 복귀 시작, 복귀 중이면 중단. 판단은 마지막 status 기준이고
+// 실제 허용 여부(lease, 상태, 관절 차이)는 서버와 worker가 정한다.
+let latestState = null;
+let homeButtonWasPressed = false;
+
+function handleHomeButton(pressed, gamepad) {
+  if (pressed && !homeButtonWasPressed) {
+    if (!controllerOwned) {
+      playHaptic('error', gamepad);
+    } else if (latestState === 'HOMING') {
+      sendEvent('stop_home');
+      playHaptic('discard', gamepad);
+    } else {
+      sendEvent('go_home');
+      playHaptic('start', gamepad);
+    }
+  }
+  homeButtonWasPressed = pressed;
+}
+
+// ──────────────────────────────────────────
+//  시연 녹화 (A/B 버튼, haptics, 시야 상태등)
+// ──────────────────────────────────────────
+let latestRecording = null;
+let recordFlash = null;
+let recordGamepad = null;
+const recordButtons = new RecordButtons();
+const recordTracker = new RecordStatusTracker();
+
+function recorderState() {
+  if (!latestRecording) return null;
+  return latestRecording.alive ? latestRecording.state : 'DOWN';
+}
+
+function playHaptic(pattern, gamepad = recordGamepad) {
+  const steps = RECORD_HAPTICS[pattern];
+  const actuator = gamepad && gamepad.hapticActuators
+    ? gamepad.hapticActuators[0]
+    : null;
+  if (!steps || !actuator || typeof actuator.pulse !== 'function') return;
+  let delayMs = 0;
+  for (const [intensity, durationMs, pauseMs] of steps) {
+    setTimeout(() => {
+      try { actuator.pulse(intensity, durationMs); } catch (_) { /* unsupported */ }
+    }, delayMs);
+    delayMs += durationMs + pauseMs;
+  }
+}
+
+function recordFeedback(haptic, flashColor) {
+  if (haptic) playHaptic(haptic);
+  if (flashColor) {
+    recordFlash = { color: flashColor, untilMs: performance.now() + FLASH_MS };
+  }
+}
+
+function sendRecord(command) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !sessionId) {
+    recordFeedback('error', 'error');
+    return;
+  }
+  const message = {
+    version: 1,
+    type: 'record',
+    session_id: sessionId,
+    action: command.action,
+  };
+  if (command.outcome) message.outcome = command.outcome;
+  ws.send(JSON.stringify(message));
+  recordTracker.commandSent(performance.now());
+}
+
+function handleRecordCommand(command) {
+  if (!command) return;
+  if (command.action === 'rejected') {
+    recordFeedback('error', 'error');
+    return;
+  }
+  sendRecord(command);
+  if (command.action === 'start') {
+    recordFeedback('start', null);
+  } else if (command.action === 'discard') {
+    recordFeedback('discard', 'discard');
+  } else {
+    recordFeedback(command.outcome, null);
+  }
+}
+
+function updateRecordUI(recording) {
+  latestRecording = recording || null;
+  const result = recordTracker.observe(latestRecording, performance.now());
+  if (result) {
+    if (result.flash) recordFlash = result.flash;
+    if (result.haptic) playHaptic(result.haptic);
+  }
+  const stateEl = document.getElementById('rec-state');
+  if (!latestRecording) {
+    stateEl.textContent = '비활성 (config)';
+    document.getElementById('rec-task').textContent = '—';
+    document.getElementById('rec-last').textContent = '—';
+    return;
+  }
+  const state = recorderState();
+  const offline = (latestRecording.cameras || [])
+    .filter(camera => !camera.streaming).map(camera => camera.name);
+  const cameraNote = offline.length ? ` · 카메라 없음: ${offline.join(', ')}` : '';
+  stateEl.textContent = state === 'RECORDING'
+    ? `🔴 녹화 중 #${latestRecording.episode_index} ${(latestRecording.elapsed_s || 0).toFixed(1)}s`
+    : `${state}${cameraNote}`;
+  document.getElementById('rec-task').textContent =
+    latestRecording.next_task || '없음 — /monitor에서 입력';
+  const last = latestRecording.last_saved;
+  document.getElementById('rec-last').textContent = last
+    ? `#${last.episode_index} ${last.outcome}${last.complete ? '' : ' (불완전)'}`
+    : '—';
+}
+
+function drawRecordLight(frame, now) {
+  const color = recordLightColor(recorderState(), recordFlash, now);
+  const layer = xrSession.renderState.baseLayer;
+  if (!color || !gl || !layer || !refSpace) return;
+  const viewerPose = frame.getViewerPose(refSpace);
+  if (!viewerPose) return;
+  // Head-locked light at the same spot in both eyes, above the view center.
+  gl.enable(gl.SCISSOR_TEST);
+  gl.clearColor(color[0], color[1], color[2], 1.0);
+  for (const view of viewerPose.views) {
+    const viewport = layer.getViewport(view);
+    const width = Math.round(viewport.width * 0.05);
+    const height = Math.round(viewport.height * 0.025);
+    gl.scissor(
+      viewport.x + Math.round((viewport.width - width) / 2),
+      viewport.y + Math.round(viewport.height * 0.68),
+      width,
+      height
+    );
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  gl.disable(gl.SCISSOR_TEST);
+}
+
+// hand별 독립 시퀀스 카운터 (bimanual 모드)
+const handPoseSeq = { left: 0, right: 0 };
+
+function resetHandPoseSequences() {
+  for (const hand of Object.keys(handPoseSeq)) handPoseSeq[hand] = 0;
+}
+
+function sendPose(hand, pos, ori, grip, trigger) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !sessionId || !controllerOwned) return;
+  // hand별 독립 시퀀스. 서버는 hand별로 seq를 추적.
+  const effectiveHand = hand || 'right';
+  if (!(effectiveHand in handPoseSeq)) handPoseSeq[effectiveHand] = 0;
+  const seq = handPoseSeq[effectiveHand]++;
+  if (ws.bufferedAmount > MAX_BUFFERED_BYTES) {
+    poseDropCount += 1;
+    return;
+  }
+  ws.send(JSON.stringify({
+    version: 1,
+    type: 'pose',
+    session_id: sessionId,
+    seq: seq,
+    client_time_ms: performance.now(),
+    hand: effectiveHand,
+    position_m: [pos.x, pos.y, pos.z],
+    orientation_xyzw: [ori.x, ori.y, ori.z, ori.w],
+    grip: grip,
+    trigger: trigger
+  }));
+  poseSendCount += 1;
+}
+
+function sendClientTelemetry() {
+  if (
+    !ws
+    || ws.readyState !== WebSocket.OPEN
+    || !sessionId
+    || !controllerOwned
+  ) {
+    return;
+  }
+  const now = performance.now();
+  const currentPoseGapMs = (
+    xrSession && lastValidPoseTimeMs !== null
+      ? Math.max(0, now - lastValidPoseTimeMs)
+      : 0
+  );
+  const reportPoseGapMs = Math.max(maxPoseGapMs, currentPoseGapMs);
+  ws.send(JSON.stringify({
+    version: 1,
+    type: 'telemetry',
+    session_id: sessionId,
+    seq: telemetrySeq++,
+    client_time_ms: now,
+    xr_frame_count: xrFrameCount,
+    valid_pose_count: validPoseCount,
+    pose_send_count: poseSendCount,
+    pose_drop_count: poseDropCount,
+    tracking_loss_count: trackingLossCount,
+    max_xr_frame_gap_ms: maxXrFrameGapMs,
+    max_pose_gap_ms: reportPoseGapMs,
+    ws_buffered_amount: ws.bufferedAmount,
+    last_rtt_ms: lastRttMs,
+    max_rtt_ms: maxRttMs
+  }));
+  maxXrFrameGapMs = 0;
+  maxPoseGapMs = 0;
+  maxRttMs = lastRttMs;
+}
+
+function updateStatusUI(data) {
+  updateRecordUI(data.recording);
+  latestState = data.state;
+  const trackEl = document.getElementById('track-status');
+  const cardCtrl = document.getElementById('card-ctrl');
+  const homeRefused = typeof data.reason === 'string'
+    && (data.reason.startsWith('home_refused') || data.reason === 'home_disabled');
+
+  if (data.state === 'FAULT') {
+    trackEl.textContent = `🔴 FAULT: ${data.fault || '알 수 없는 오류'}`;
+    cardCtrl.classList.remove('tracking-active');
+  } else if (data.state === 'GRIPPER_ACTION') {
+    trackEl.textContent = '🟠 그리퍼 동작 중 — 로봇 추적 정지';
+    cardCtrl.classList.remove('tracking-active');
+  } else if (data.state === 'HOMING') {
+    trackEl.textContent = '🏠 홈 복귀 중 — X로 중단';
+    cardCtrl.classList.remove('tracking-active');
+  } else if (homeRefused) {
+    trackEl.textContent = `⚠️ 홈 복귀 거부: ${data.reason}`;
+    cardCtrl.classList.remove('tracking-active');
+  } else if (data.state === 'SLEEPING') {
+    trackEl.textContent = data.rearm_required
+      ? '💤 슬립 — grip을 완전히 놓았다 다시 누르세요'
+      : '💤 슬립 — grip을 다시 누르면 재개';
+    cardCtrl.classList.remove('tracking-active');
+  } else if (data.rearm_required) {
+    trackEl.textContent = '🟡 재무장 대기 — grip을 완전히 놓았다 다시 누르세요';
+    cardCtrl.classList.remove('tracking-active');
+  } else if (data.tracking) {
+    trackEl.textContent = '🟢 추적 중';
+    cardCtrl.classList.add('tracking-active');
+  } else {
+    trackEl.textContent = data.state || '대기';
+    cardCtrl.classList.remove('tracking-active');
+  }
+
+  if (data.robot_tcp) {
+    const t = data.robot_tcp;
+    document.getElementById('robot-pos').textContent =
+      `${t[0].toFixed(1)}, ${t[1].toFixed(1)}, ${t[2].toFixed(1)}`;
+  }
+  document.getElementById('frame-count').textContent =
+    `${data.tick || 0} / drop ${poseDropCount}`;
+  const gripperEl = document.getElementById('gripper-status');
+  if (!data.gripper_enabled) {
+    gripperEl.textContent = '비활성';
+  } else if (data.gripper_busy) {
+    gripperEl.textContent = `동작 중 → ${data.gripper_position}%`;
+  } else {
+    gripperEl.textContent = `대기 (${data.gripper_position}%)`;
+  }
+}
+
+// ──────────────────────────────────────────
+//  WebXR
+// ──────────────────────────────────────────
+let xrSession = null;
+let refSpace = null;
+let gl = null;
+let xrSupported = false;
+let xrCheckComplete = false;
+let gripLatchedByHand = { left: false, right: false, none: false };
+let triggerLatchedByHand = { left: false, right: false, none: false };
+
+function readAnalogButton(button, hand, latch) {
+  const key = hand === 'left' || hand === 'right' ? hand : 'none';
+  if (!button) {
+    latch[key] = false;
+    return false;
+  }
+  if (button.pressed || button.value >= 0.65) {
+    latch[key] = true;
+  } else if (button.value <= 0.35) {
+    latch[key] = false;
+  }
+  return latch[key];
+}
+
+function readGripButton(button, hand) {
+  return readAnalogButton(button, hand, gripLatchedByHand);
+}
+
+function readTriggerButton(button, hand) {
+  return readAnalogButton(button, hand, triggerLatchedByHand);
+}
+
+const btnVR = document.getElementById('btn-vr');
+btnVR.disabled = true;
+
+function refreshVRButton() {
+  const ready = xrSupported && wsConnected && sessionId && !xrSession;
+  btnVR.disabled = !ready;
+  if (!xrCheckComplete) {
+    btnVR.textContent = 'WebXR 확인 중';
+  } else if (!xrSupported) {
+    btnVR.textContent = '❌ WebXR 미지원 브라우저';
+  } else if (!wsConnected || !sessionId) {
+    btnVR.textContent = 'WebSocket 연결 대기';
+  } else if (!xrSession) {
+    btnVR.textContent = '🥽 VR 세션 시작';
+  }
+}
+
+// WebXR 지원 확인 (immersive-ar 우선, fallback immersive-vr)
+let preferredSessionMode = 'immersive-vr';
+
+if (navigator.xr) {
+  Promise.all([
+    navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
+    navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
+  ]).then(([arSupported, vrSupported]) => {
+    xrCheckComplete = true;
+    if (arSupported) {
+      preferredSessionMode = 'immersive-ar';
+      xrSupported = true;
+      btnVR.addEventListener('click', startVR);
+      refreshVRButton();
+    } else if (vrSupported) {
+      preferredSessionMode = 'immersive-vr';
+      xrSupported = true;
+      btnVR.addEventListener('click', startVR);
+      refreshVRButton();
+    } else {
+      refreshVRButton();
+    }
+  });
+} else {
+  xrCheckComplete = true;
+  refreshVRButton();
+}
+
+async function startVR() {
+  try {
+    const sessionOptions = {
+      requiredFeatures: ['local-floor'],
+      optionalFeatures: ['passthrough', 'dom-overlay']
+    };
+    try {
+      xrSession = await navigator.xr.requestSession(preferredSessionMode, sessionOptions);
+    } catch (modeErr) {
+      console.warn('Preferred session mode failed, falling back to immersive-vr:', modeErr);
+      xrSession = await navigator.xr.requestSession('immersive-vr', sessionOptions);
+    }
+    lastXrFrameTimeMs = null;
+    lastValidPoseTimeMs = null;
+    maxXrFrameGapMs = 0;
+    maxPoseGapMs = 0;
+
+    // WebXR은 렌더링할 3D 그래픽(WebGL) 레이어가 없으면 무한 로딩에 빠집니다.
+    // 위치 추적만 하더라도 더미(Dummy) WebGL 캔버스를 만들어 연결해 주어야 합니다.
+    const canvas = document.createElement('canvas');
+    gl = canvas.getContext('webgl', { xrCompatible: true, alpha: true, preserveDrawingBuffer: false });
+    await gl.makeXRCompatible();
+    xrSession.updateRenderState({
+      baseLayer: new XRWebGLLayer(xrSession, gl)
+    });
+
+    document.getElementById('dot-xr').className = 'dot green';
+    document.getElementById('xr-status').textContent = '활성';
+    btnVR.textContent = '🥽 VR 세션 활성';
+    btnVR.disabled = true;
+
+    sendEvent('webxr_started');
+
+    refSpace = await xrSession.requestReferenceSpace('local-floor');
+
+    xrSession.addEventListener('end', () => {
+      xrSession = null;
+      lastXrFrameTimeMs = null;
+      lastValidPoseTimeMs = null;
+      gripLatchedByHand = { left: false, right: false, none: false };
+      triggerLatchedByHand = { left: false, right: false, none: false };
+      recordButtons.reset();
+      recordGamepad = null;
+      homeButtonWasPressed = false;
+      document.getElementById('dot-xr').className = 'dot red';
+      document.getElementById('xr-status').textContent = '종료됨';
+      btnVR.textContent = '🥽 VR 세션 시작';
+      sendEvent('webxr_ended');
+      controllerOwned = false;
+      refreshVRButton();
+    });
+
+    xrSession.requestAnimationFrame(onXRFrame);
+  } catch (err) {
+    console.error('VR 세션 시작 실패:', err);
+    document.getElementById('xr-status').textContent = '에러';
+  }
+}
+
+function onXRFrame(time, frame) {
+  if (!xrSession) return;
+  xrSession.requestAnimationFrame(onXRFrame);
+  xrFrameCount += 1;
+  if (lastXrFrameTimeMs !== null) {
+    maxXrFrameGapMs = Math.max(
+      maxXrFrameGapMs,
+      Math.max(0, time - lastXrFrameTimeMs)
+    );
+  }
+  lastXrFrameTimeMs = time;
+
+  // 알파(Alpha)를 0으로 투명하게 지워주어 Meta Quest 3 패스스루(Passthrough) 카메라 화면이 배경에 노출되도록 합니다.
+  if (gl && xrSession.renderState.baseLayer) {
+    const layer = xrSession.renderState.baseLayer;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    gl.clearColor(0.0, 0.0, 0.0, 0.0); // 투명 (Passthrough 투과)
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  }
+
+  const sources = Array.from(xrSession.inputSources);
+
+  // 녹화 버튼: 오른손 A(buttons[4]) / B(buttons[5]), xr-standard mapping.
+  // 녹화는 로봇을 움직이지 않으므로 grip/lease와 독립적으로 처리한다.
+  const now = performance.now();
+  const recordSource = sources.find(source => (
+    source.handedness === 'right' && source.gamepad
+  ));
+  recordGamepad = recordSource ? recordSource.gamepad : null;
+  if (recordGamepad) {
+    const buttons = recordGamepad.buttons;
+    handleRecordCommand(recordButtons.update(
+      Boolean(buttons[4] && buttons[4].pressed),
+      Boolean(buttons[5] && buttons[5].pressed),
+      now,
+      recorderState()
+    ));
+  }
+  drawRecordLight(frame, now);
+
+  // 홈 복귀: 왼손 X(buttons[4]). 단팔에서는 왼손 controller가 비어 있다.
+  const homeSource = sources.find(source => (
+    source.handedness === 'left' && source.gamepad
+  ));
+  if (homeSource) {
+    const button = homeSource.gamepad.buttons[4];
+    handleHomeButton(Boolean(button && button.pressed), homeSource.gamepad);
+  }
+  let controlSources;
+  if (controlHands.length > 1) {
+    controlSources = sources.filter(source => (
+      source.gripSpace && controlHands.includes(source.handedness)
+    ));
+  } else {
+    // 단일 로봇은 두 controller pose를 같은 worker에 섞지 않는다.
+    const preferred = (
+      sources.find(source => (
+        source.gripSpace && source.handedness === controlHands[0]
+      ))
+      || sources.find(source => source.gripSpace)
+    );
+    controlSources = preferred ? [preferred] : [];
+  }
+  // 양손 컨트롤러 동시 전송 (bimanual 모드)
+  let anyPoseFound = false;
+  let displayPose = null;
+  for (const source of controlSources) {
+    if (!source.gripSpace) continue;
+    const pose = frame.getPose(source.gripSpace, refSpace);
+    if (!pose) continue;
+    anyPoseFound = true;
+    validPoseCount += 1;
+    if (lastValidPoseTimeMs !== null) {
+      maxPoseGapMs = Math.max(
+        maxPoseGapMs,
+        Math.max(0, time - lastValidPoseTimeMs)
+      );
+    }
+    lastValidPoseTimeMs = time;
+
+    const pos = pose.transform.position;
+    const ori = pose.transform.orientation;
+    const inputHand = source.handedness || controlHands[0];
+    const hand = controlHands.length > 1 ? inputHand : controlHands[0];
+
+    // 버튼: 0=trigger, 1=grip
+    let grip = false;
+    let trigger = false;
+    if (source.gamepad) {
+      trigger = readTriggerButton(source.gamepad.buttons[0], inputHand);
+      grip = readGripButton(source.gamepad.buttons[1], inputHand);
+    }
+
+    // 오른손을 우선 표시하되 왼손만 추적될 때도 상태를 갱신한다.
+    if (displayPose === null || hand === 'right') {
+      displayPose = { pos, grip, trigger };
+    }
+
+    sendPose(hand, pos, ori, grip, trigger);
+  }
+  if (!anyPoseFound) {
+    trackingLossCount += 1;
+    document.getElementById('track-status').textContent =
+      '🟡 controller pose 추적 손실';
+  } else {
+    const { pos, grip, trigger } = displayPose;
+    document.getElementById('vr-pos').textContent =
+      `${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}`;
+    document.getElementById('grip-status').textContent =
+      grip ? '🟢 누름' : '⚪ 해제';
+    document.getElementById('trigger-status').textContent =
+      trigger ? '🟠 누름' : '⚪ 해제';
+    document.getElementById('track-status').textContent =
+      '🟢 트래킹 활성';
+  }
+}
+
+// ──────────────────────────────────────────
+//  초기화
+// ──────────────────────────────────────────
+connectWS();
+setInterval(sendClientTelemetry, 1000);
+</script>
+</body>
+</html>

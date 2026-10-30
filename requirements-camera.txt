@@ -1,0 +1,5 @@
+# Wrist camera recording (recording.camera.enabled). Ubuntu 22.04 / Python 3.10.
+# av matches the PyAV version used by the lerobot conversion environment.
+av==15.1.0
+numpy==2.2.6
+pyrealsense2==2.59.1.11053

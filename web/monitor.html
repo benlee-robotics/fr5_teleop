@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>VR Teleop 현장 모니터</title>
+<style>
+  :root {
+    color-scheme: dark;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: #0a0e17;
+    color: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 1.7rem; }
+  .subtitle { color: #94a3b8; margin-bottom: 18px; }
+  .banner {
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #172033;
+    border: 1px solid #334155;
+    margin-bottom: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: #111827;
+    border: 1px solid #263244;
+    border-radius: 12px;
+    padding: 15px;
+  }
+  .card h2 {
+    margin: 0 0 10px;
+    font-size: 0.9rem;
+    color: #93c5fd;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid #1f2937;
+  }
+  .row:last-child { border-bottom: 0; }
+  .label { color: #94a3b8; }
+  .value {
+    text-align: right;
+    font-family: "Cascadia Mono", Consolas, monospace;
+  }
+  .ok { color: #4ade80; }
+  .warn { color: #fbbf24; }
+  .bad { color: #fb7185; }
+  .muted { color: #94a3b8; }
+  #fault { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .recording-card { grid-column: 1 / -1; }
+  .recording-card textarea, #home-yaml {
+    width: 100%;
+    min-height: 56px;
+    margin: 8px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #0b1220;
+    color: inherit;
+    font: inherit;
+    resize: vertical;
+  }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .buttons button {
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .buttons button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .buttons .start { border-color: #2563eb; }
+  .buttons .success { border-color: #16a34a; }
+  .buttons .failure { border-color: #d97706; }
+  .buttons .discard { border-color: #e11d48; }
+  #rec-state.recording { color: #fb7185; font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VR Teleop 현장 모니터</h1>
+  <div class="subtitle">
+    Quest 내부 화면과 별개로 Ubuntu PC 또는 작업자 단말에서 확인합니다.
+  </div>
+  <div class="banner" id="summary">
+    서버 연결 대기 중
+  </div>
+
+  <div class="grid">
+    <section class="card recording-card">
+      <h2>Demonstration recording</h2>
+      <label class="label" for="rec-task">Language instruction (task)</label>
+      <textarea id="rec-task" placeholder="예: pick up the red cube and place it in the box"></textarea>
+      <div class="buttons">
+        <button class="start" id="rec-start" disabled>● 녹화 시작</button>
+        <button class="success" id="rec-success" disabled>✔ 성공 저장</button>
+        <button class="failure" id="rec-failure" disabled>✘ 실패 저장</button>
+        <button class="discard" id="rec-discard" disabled>폐기</button>
+      </div>
+      <div class="row"><span class="label">Recorder</span><span class="value" id="rec-state">—</span></div>
+      <div class="row"><span class="label">Next task (Quest A)</span><span class="value" id="rec-next-task">—</span></div>
+      <div class="row"><span class="label">Episode / elapsed</span><span class="value" id="rec-episode">—</span></div>
+      <div class="row"><span class="label">Samples / dropped batches</span><span class="value" id="rec-samples">—</span></div>
+      <!-- One row per enabled camera: fps (serial) · episode frames / dropped -->
+      <div id="rec-cameras">
+        <div class="row"><span class="label">Camera</span><span class="value muted">—</span></div>
+      </div>
+      <div class="row"><span class="label">Saved this session</span><span class="value" id="rec-saved">—</span></div>
+      <div class="row"><span class="label">Last saved</span><span class="value" id="rec-last">—</span></div>
+      <div class="row"><span class="label">Error</span><span class="value" id="rec-error">—</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Home return</h2>
+      <div class="buttons">
+        <button class="start" id="home-go" disabled>🏠 홈으로</button>
+        <button class="discard" id="home-stop" disabled>■ 중단</button>
+        <button id="home-copy" disabled>현재 자세 → home YAML</button>
+      </div>
+      <div class="row"><span class="label">Home</span><span class="value" id="home-state">—</span></div>
+      <div class="row"><span class="label">Measured TCP</span><span class="value" id="home-tcp">—</span></div>
+      <div class="row"><span class="label">Last result</span><span class="value" id="home-result">—</span></div>
+      <textarea id="home-yaml" readonly hidden rows="5"></textarea>
+    </section>
+
+    <section class="card">
+      <h2>Control state</h2>
+      <div class="row"><span class="label">WebSocket</span><span class="value" id="ws">연결 중</span></div>
+      <div class="row"><span class="label">Robot state</span><span class="value" id="state">—</span></div>
+      <div class="row"><span class="label">Tracking</span><span class="value" id="tracking">—</span></div>
+      <div class="row"><span class="label">Rearm required</span><span class="value" id="rearm">—</span></div>
+      <div class="row"><span class="label">Input age</span><span class="value" id="input-age">—</span></div>
+      <div class="row"><span class="label">Fault / reason</span><span class="value" id="fault">—</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Quest / WebSocket</h2>
+      <div class="row"><span class="label">Telemetry age</span><span class="value" id="telemetry-age">—</span></div>
+      <div class="row"><span class="label">RTT last / max</span><span class="value" id="rtt">—</span></div>
+      <div class="row"><span class="label">XR max frame gap</span><span class="value" id="xr-gap">—</span></div>
+      <div class="row"><span class="label">Controller max pose gap</span><span class="value" id="pose-gap">—</span></div>
+      <div class="row"><span class="label">Buffered bytes</span><span class="value" id="buffered">—</span></div>
+      <div class="row"><span class="label">Pose sent / dropped</span><span class="value" id="pose-counts">—</span></div>
+      <div class="row"><span class="label">Tracking losses</span><span class="value" id="tracking-losses">—</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Robot worker</h2>
+      <div class="row"><span class="label">Worker</span><span class="value" id="worker">—</span></div>
+      <div class="row"><span class="label">Tick / missed</span><span class="value" id="ticks">—</span></div>
+      <div class="row"><span class="label">Jitter</span><span class="value" id="jitter">—</span></div>
+      <div class="row"><span class="label">Last SDK call</span><span class="value" id="sdk">—</span></div>
+      <div class="row"><span class="label">Servo start / cart / end</span><span class="value" id="servo-counts">—</span></div>
+      <div class="row"><span class="label">Gripper command / complete</span><span class="value" id="gripper-counts">—</span></div>
+    </section>
+
+    <section class="card">
+      <h2>Robot Joints (deg)</h2>
+      <div class="row"><span class="label">J1 / J2</span><span class="value" id="j1-j2">—</span></div>
+      <div class="row"><span class="label">J3 / J4</span><span class="value" id="j3-j4">—</span></div>
+      <div class="row"><span class="label">J5 / J6</span><span class="value" id="j5-j6">—</span></div>
+      <div class="row"><span class="label">Left (J1..J6)</span><span class="value" id="left-joints">—</span></div>
+      <div class="row"><span class="label">Right (J1..J6)</span><span class="value" id="right-joints">—</span></div>
+    </section>
+
+    <section class="card">
+      <h2>판별 기준</h2>
+      <div class="muted">
+        RTT와 server receive gap만 커지면 Wi-Fi/TCP 경로를 우선 조사합니다.
+        XR frame gap과 controller pose gap도 함께 커지면 Quest tracking 또는
+        브라우저 정체 가능성이 큽니다. Servo start/end가 반복 증가하면
+        pose timeout에 의한 stop/rearm입니다.
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const byId = id => document.getElementById(id);
+const fmt = (value, digits = 1) => (
+  Number.isFinite(value) ? value.toFixed(digits) : '—'
+);
+let previousTelemetry = null;
+let latestPoseDropDelta = 0;
+let latestTrackingLossDelta = 0;
+let previousControllerId = null;
+let socket = null;
+let sessionId = null;
+let recorderState = null;
+// null when no camera is configured; otherwise whether every camera has frames.
+let cameraStreaming = null;
+
+const TASK_KEY = 'vr-teleop.record-task';
+try {
+  byId('rec-task').value = localStorage.getItem(TASK_KEY) || '';
+} catch (_) { /* storage unavailable */ }
+let taskSyncTimer = null;
+byId('rec-task').addEventListener('input', () => {
+  try { localStorage.setItem(TASK_KEY, byId('rec-task').value); } catch (_) {}
+  updateRecordButtons();
+  // The Quest A button starts with the server's next task, so keep it synced.
+  clearTimeout(taskSyncTimer);
+  taskSyncTimer = setTimeout(syncTask, 500);
+});
+
+function syncTask() {
+  const task = byId('rec-task').value.trim();
+  if (task) sendRecord('set_task', { task });
+}
+
+function sendRecord(action, extra = {}) {
+  if (!socket || socket.readyState !== WebSocket.OPEN || !sessionId) return;
+  socket.send(JSON.stringify({
+    version: 1, type: 'record', session_id: sessionId, action, ...extra,
+  }));
+}
+
+byId('rec-start').onclick = () => {
+  sendRecord('start', { task: byId('rec-task').value.trim() });
+};
+byId('rec-success').onclick = () => sendRecord('stop', { outcome: 'success' });
+byId('rec-failure').onclick = () => sendRecord('stop', { outcome: 'failure' });
+byId('rec-discard').onclick = () => {
+  if (confirm('현재 에피소드를 저장하지 않고 삭제합니다.')) sendRecord('discard');
+};
+
+function updateRecordButtons() {
+  const connected = socket && socket.readyState === WebSocket.OPEN && sessionId;
+  const idle = recorderState === 'IDLE';
+  const recording = recorderState === 'RECORDING';
+  byId('rec-start').disabled =
+    !connected || !idle || !byId('rec-task').value.trim()
+    || cameraStreaming === false;
+  byId('rec-success').disabled = !connected || !recording;
+  byId('rec-failure').disabled = !connected || !recording;
+  byId('rec-discard').disabled = !connected || !(recording || recorderState === 'FINALIZING');
+}
+
+function updateRecording(recording) {
+  if (!recording) {
+    recorderState = null;
+    byId('rec-state').textContent = 'config에서 비활성 (recording.enabled)';
+    byId('rec-state').className = 'value muted';
+    updateRecordButtons();
+    return;
+  }
+  recorderState = recording.alive ? recording.state : 'DOWN';
+  const nextTask = recording.next_task || '';
+  byId('rec-next-task').textContent = nextTask || '없음';
+  byId('rec-next-task').className =
+    `value ${!nextTask ? 'bad' : (nextTask === byId('rec-task').value.trim() ? 'ok' : 'warn')}`;
+  byId('rec-state').textContent = recording.alive ? recording.state : 'RECORDER DOWN';
+  byId('rec-state').className =
+    `value ${!recording.alive ? 'bad' : (recording.state === 'RECORDING' ? 'recording' : 'ok')}`;
+  byId('rec-episode').textContent = recording.episode_index == null
+    ? `next #${recording.next_index ?? '—'}`
+    : `#${recording.episode_index} / ${fmt(recording.elapsed_s)} s`;
+  const counts = Object.entries(recording.samples || {})
+    .map(([hand, n]) => `${hand} ${n}`).join(', ') || '0';
+  const dropped = (recording.dropped_batches ?? 0);
+  byId('rec-samples').textContent = `${counts} / ${dropped}`;
+  severity(byId('rec-samples'), dropped, 1, 1);
+  byId('rec-saved').textContent = `${recording.saved_count ?? 0}`;
+  const last = recording.last_saved;
+  const lastFrames = last
+    ? Object.entries(last.camera_frames || {})
+      .map(([name, n]) => `, ${name} ${n} frames`).join('')
+    : '';
+  byId('rec-last').textContent = last
+    ? `#${last.episode_index} ${last.outcome}${last.complete ? '' : ' (incomplete)'} ${fmt(last.duration_s)} s${lastFrames}`
+    : '—';
+
+  const cameras = recording.cameras || [];
+  cameraStreaming = cameras.length ? cameras.every(c => c.streaming) : null;
+  renderCameras(cameras);
+  const error = recording.last_error
+    || cameras.map(c => c.last_error && `${c.name}: ${c.last_error}`).find(Boolean);
+  byId('rec-error').textContent = error || '—';
+  byId('rec-error').className = `value ${error ? 'bad' : 'muted'}`;
+  updateRecordButtons();
+}
+
+function renderCameras(cameras) {
+  const container = byId('rec-cameras');
+  container.replaceChildren();
+  if (!cameras.length) {
+    container.append(cameraRow('Camera', '사용 안 함 (recording.cameras)', 'muted'));
+    return;
+  }
+  for (const camera of cameras) {
+    const frames = camera.episode_frames == null
+      ? ''
+      : ` · ${camera.episode_frames} / ${camera.episode_dropped} dropped`;
+    const text = camera.streaming
+      ? `${fmt(camera.fps)} fps${camera.serial ? ` (${camera.serial})` : ''}${frames}`
+      : `NOT STREAMING${frames}`;
+    const bad = !camera.streaming || (camera.episode_dropped ?? 0) > 0;
+    container.append(cameraRow(`Camera ${camera.name}`, text, bad ? 'bad' : 'ok'));
+  }
+}
+
+function cameraRow(label, text, level) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const labelEl = document.createElement('span');
+  labelEl.className = 'label';
+  labelEl.textContent = label;
+  const valueEl = document.createElement('span');
+  valueEl.className = `value ${level}`;
+  valueEl.textContent = text;
+  row.append(labelEl, valueEl);
+  return row;
+}
+
+function severity(element, value, warn, bad) {
+  element.className = 'value';
+  if (!Number.isFinite(value)) {
+    element.classList.add('muted');
+  } else if (value >= bad) {
+    element.classList.add('bad');
+  } else if (value >= warn) {
+    element.classList.add('warn');
+  } else {
+    element.classList.add('ok');
+  }
+}
+
+// Home return: the Quest that holds the lease uses X; /monitor may start it
+// only while no Quest holds the lease. Stop is always allowed.
+let homeStatus = null;
+
+function sendEventMessage(event) {
+  if (!socket || socket.readyState !== WebSocket.OPEN || !sessionId) return;
+  socket.send(JSON.stringify({ version: 1, type: 'event', session_id: sessionId, event }));
+}
+
+byId('home-go').onclick = () => {
+  if (confirm('로봇이 홈 자세로 이동합니다. 주변이 비어 있는지 확인했습니까?')) {
+    sendEventMessage('go_home');
+  }
+};
+byId('home-stop').onclick = () => sendEventMessage('stop_home');
+byId('home-copy').onclick = () => {
+  const tcp = homeStatus && homeStatus.measured_tcp;
+  const joints = homeStatus && homeStatus.joint_deg;
+  if (!Array.isArray(tcp) || !Array.isArray(joints)) return;
+  const list = values => `[${values.map(v => v.toFixed(3)).join(', ')}]`;
+  const text = `home:\n  enabled: true\n  tcp: ${list(tcp)}\n  joints_deg: ${list(joints)}\n`;
+  const area = byId('home-yaml');
+  area.value = text;
+  area.hidden = false;
+  area.select();
+  if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+};
+
+function updateHome(data) {
+  homeStatus = data;
+  const connected = socket && socket.readyState === WebSocket.OPEN && sessionId;
+  const homing = data.state === 'HOMING';
+  const questOwnsLease = Boolean(data.controller_id) && data.controller_id !== sessionId;
+  const ready = data.state === 'IDLE' || data.state === 'SLEEPING';
+  byId('home-go').disabled = !connected || !data.home_enabled || !ready || questOwnsLease;
+  byId('home-stop').disabled = !connected || !homing;
+  byId('home-copy').disabled = !Array.isArray(data.measured_tcp) || !Array.isArray(data.joint_deg);
+  let text;
+  let level;
+  if (!data.home_enabled) {
+    [text, level] = ['config에서 비활성 (home.enabled)', 'muted'];
+  } else if (homing) {
+    [text, level] = ['복귀 중', 'warn'];
+  } else if (questOwnsLease) {
+    [text, level] = ['Quest가 제어 중 — Quest 왼손 X 사용', 'warn'];
+  } else {
+    [text, level] = [ready ? '대기' : `${data.state} — 홈 복귀 불가`, ready ? 'ok' : 'warn'];
+  }
+  byId('home-state').textContent = text;
+  byId('home-state').className = `value ${level}`;
+  const tcp = data.measured_tcp;
+  byId('home-tcp').textContent = Array.isArray(tcp)
+    ? `${tcp.slice(0, 3).map(v => fmt(v, 1)).join(', ')} mm / ${tcp.slice(3).map(v => fmt(v, 1)).join(', ')}°`
+    : '—';
+  if (typeof data.reason === 'string' && data.reason.startsWith('home_')) {
+    const bad = data.reason.startsWith('home_refused') || data.reason === 'home_disabled'
+      || data.reason === 'home_timeout' || data.reason.endsWith('mismatch')
+      || data.reason === 'home_start_failed';
+    byId('home-result').textContent = data.reason;
+    byId('home-result').className = `value ${bad ? 'bad' : 'ok'}`;
+  }
+}
+
+function updateStatus(data) {
+  updateHome(data);
+  if (data.controller_id !== previousControllerId) {
+    previousControllerId = data.controller_id;
+    previousTelemetry = null;
+    latestPoseDropDelta = 0;
+    latestTrackingLossDelta = 0;
+  }
+  updateRecording(data.recording);
+  const state = data.state || '—';
+  byId('state').textContent = state;
+  byId('state').className = `value ${state === 'FAULT' ? 'bad' : (state === 'ACTIVE' ? 'ok' : 'warn')}`;
+  byId('tracking').textContent = data.tracking ? 'ACTIVE' : 'OFF';
+  byId('tracking').className = `value ${data.tracking ? 'ok' : 'warn'}`;
+  byId('rearm').textContent = data.rearm_required ? 'YES' : 'NO';
+  byId('input-age').textContent = `${fmt(data.input_age_ms)} ms`;
+  severity(byId('input-age'), data.input_age_ms, 100, 200);
+  byId('fault').textContent = data.fault || data.reason || '—';
+
+  const worker = data.worker || {};
+  byId('worker').textContent =
+    `gen ${worker.generation ?? '—'} / ${worker.alive ? 'alive' : 'down'}`;
+  const counters = data.counters || {};
+  // missed = gaps while the servo streams; idle = blocking calls with the
+  // servo stopped (gripper, servo start), which are expected.
+  byId('ticks').textContent =
+    `${data.tick ?? 0} / ${counters.missed_ticks ?? 0}` +
+    ` (idle ${counters.idle_overrun_ticks ?? 0})`;
+  byId('jitter').textContent = `${fmt(data.jitter_ms, 3)} ms`;
+  severity(byId('jitter'), Math.abs(data.jitter_ms), 2, 8);
+  byId('sdk').textContent = `${fmt(data.sdk_call_ms, 3)} ms`;
+  severity(byId('sdk'), data.sdk_call_ms, 8, 20);
+  byId('servo-counts').textContent =
+    `${counters.servo_start_count ?? 0} / ${counters.servo_cart_count ?? 0} / ${counters.servo_end_count ?? 0}`;
+  byId('gripper-counts').textContent =
+    `${counters.gripper_command_count ?? 0} / ${counters.gripper_complete_count ?? 0}`;
+
+  const joints = data.joint_deg;
+  if (Array.isArray(joints) && joints.length === 6) {
+    byId('j1-j2').textContent = `${fmt(joints[0], 1)}° / ${fmt(joints[1], 1)}°`;
+    byId('j3-j4').textContent = `${fmt(joints[2], 1)}° / ${fmt(joints[3], 1)}°`;
+    byId('j5-j6').textContent = `${fmt(joints[4], 1)}° / ${fmt(joints[5], 1)}°`;
+  } else {
+    byId('j1-j2').textContent = '—';
+    byId('j3-j4').textContent = '—';
+    byId('j5-j6').textContent = '—';
+  }
+
+  const arms = data.arms || {};
+  if (arms.left && Array.isArray(arms.left.joint_deg)) {
+    byId('left-joints').textContent = arms.left.joint_deg.map(j => fmt(j, 1) + '°').join(', ');
+  } else {
+    byId('left-joints').textContent = '—';
+  }
+  if (arms.right && Array.isArray(arms.right.joint_deg)) {
+    byId('right-joints').textContent = arms.right.joint_deg.map(j => fmt(j, 1) + '°').join(', ');
+  } else {
+    byId('right-joints').textContent = '—';
+  }
+
+  const telemetry = data.client_telemetry;
+  if (!telemetry) {
+    for (const id of [
+      'telemetry-age', 'rtt', 'xr-gap', 'pose-gap', 'buffered',
+      'pose-counts', 'tracking-losses'
+    ]) {
+      byId(id).textContent = '수신 없음';
+      byId(id).className = 'value muted';
+    }
+    byId('summary').textContent =
+      `${state} — controller telemetry 수신 대기`;
+    return;
+  }
+  if (
+    previousTelemetry === null
+    || telemetry.seq !== previousTelemetry.seq
+  ) {
+    latestPoseDropDelta = Math.max(
+      0,
+      telemetry.pose_drop_count
+        - (previousTelemetry?.pose_drop_count ?? 0)
+    );
+    latestTrackingLossDelta = Math.max(
+      0,
+      telemetry.tracking_loss_count
+        - (previousTelemetry?.tracking_loss_count ?? 0)
+    );
+    previousTelemetry = telemetry;
+  }
+
+  byId('telemetry-age').textContent = `${fmt(telemetry.age_ms)} ms`;
+  severity(byId('telemetry-age'), telemetry.age_ms, 1500, 3000);
+  byId('rtt').textContent =
+    `${fmt(telemetry.last_rtt_ms)} / ${fmt(telemetry.max_rtt_ms)} ms`;
+  severity(byId('rtt'), telemetry.max_rtt_ms, 100, 200);
+  byId('xr-gap').textContent = `${fmt(telemetry.max_xr_frame_gap_ms)} ms`;
+  severity(byId('xr-gap'), telemetry.max_xr_frame_gap_ms, 50, 100);
+  byId('pose-gap').textContent = `${fmt(telemetry.max_pose_gap_ms)} ms`;
+  severity(byId('pose-gap'), telemetry.max_pose_gap_ms, 100, 200);
+  byId('buffered').textContent = `${telemetry.ws_buffered_amount} B`;
+  severity(byId('buffered'), telemetry.ws_buffered_amount, 4096, 65536);
+  byId('pose-counts').textContent =
+    `${telemetry.pose_send_count} / ${telemetry.pose_drop_count} (Δ${latestPoseDropDelta})`;
+  byId('tracking-losses').textContent =
+    `${telemetry.tracking_loss_count} (Δ${latestTrackingLossDelta})`;
+  severity(byId('tracking-losses'), latestTrackingLossDelta, 1, 10);
+
+  const degraded = (
+    telemetry.age_ms >= 1500
+    || (telemetry.max_rtt_ms ?? 0) >= 100
+    || telemetry.max_pose_gap_ms >= 100
+    || telemetry.ws_buffered_amount >= 4096
+  );
+  const causes = [];
+  if (
+    (telemetry.max_rtt_ms ?? 0) >= 100
+    || telemetry.ws_buffered_amount >= 4096
+    || latestPoseDropDelta > 0
+  ) causes.push('Wi-Fi/TCP');
+  if (telemetry.max_xr_frame_gap_ms >= 50) {
+    causes.push('Quest frame');
+  }
+  if (
+    telemetry.max_pose_gap_ms >= 100
+    || latestTrackingLossDelta > 0
+  ) causes.push('controller tracking');
+  byId('summary').textContent = degraded
+    ? `${state} — 품질 저하 후보: ${causes.join(', ') || '분류 대기'}`
+    : `${state} — 통신 telemetry 정상 범위`;
+  byId('summary').className = `banner ${degraded ? 'warn' : 'ok'}`;
+}
+
+function connect() {
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  socket = new WebSocket(`${scheme}://${location.host}/ws`);
+  socket.onopen = () => {
+    byId('ws').textContent = 'CONNECTED';
+    byId('ws').className = 'value ok';
+  };
+  socket.onmessage = event => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'hello') {
+      sessionId = data.session_id;
+      syncTask();
+      updateRecordButtons();
+    } else if (data.type === 'status') {
+      updateStatus(data);
+    } else if (data.type === 'error' && data.code === 'recording_unavailable') {
+      byId('rec-error').textContent = data.message;
+      byId('rec-error').className = 'value bad';
+    } else if (data.type === 'error') {
+      byId('home-result').textContent = data.message;
+      byId('home-result').className = 'value bad';
+    }
+  };
+  socket.onclose = () => {
+    sessionId = null;
+    updateRecordButtons();
+    byId('ws').textContent = 'DISCONNECTED';
+    byId('ws').className = 'value bad';
+    setTimeout(connect, 2000);
+  };
+  socket.onerror = () => socket.close();
+}
+
+connect();
+</script>
+</body>
+</html>

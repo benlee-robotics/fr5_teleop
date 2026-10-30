@@ -1,0 +1,43 @@
+# Run one session at a time; hardware mode is never started automatically.
+#   dry-run:   docker compose run --rm teleop
+#   hardware:  docker compose run --rm teleop --confirm-hardware
+#   bimanual:  docker compose run --rm teleop --config /app/config_bimanual.yaml --confirm-hardware
+# Stop with Ctrl+C (graceful ServoMoveEnd -> CloseRPC, recorder finalize);
+# repeated Ctrl+C is ignored until shutdown completes.
+
+services:
+  teleop:
+    image: ghcr.io/benlee-robotics/fr5_teleop:${TELEOP_TAG:-latest}
+    build: .
+    # Robot TCP 20003/20005 + UDP 20007 at an 8 ms servo period, and Quest on
+    # 8443: no NAT in between.
+    network_mode: host
+    # Reaps the spawned worker/recorder/camera processes and forwards signals.
+    init: true
+    # Recorder shutdown needs ~12 s to finalize video (docs/record.md 1.10);
+    # Docker's default of 10 s would SIGKILL mid-shutdown.
+    stop_grace_period: 15s
+    restart: "no"
+    tty: true
+    stdin_open: true
+    # Wrist RealSense: the pyrealsense2 wheel uses the V4L2 backend and
+    # /dev/videoN is renumbered on replug, so the host /dev is bound and only
+    # V4L2 (81) and USB (189) character devices are allowed. Host udev rules
+    # (scripts/install_realsense_udev.sh) make the nodes readable for UID 1000.
+    group_add: [video, plugdev]
+    device_cgroup_rules:
+      - "c 81:* rmw"
+      - "c 189:* rmw"
+    volumes:
+      # Relative paths in the config resolve against /app (the config's dir).
+      - ./config.yaml:/app/config.yaml:ro
+      - ./config_bimanual.yaml:/app/config_bimanual.yaml:ro
+      - ./certs:/app/certs:ro
+      - ./recordings:/app/recordings
+      - /dev:/dev
+      - /run/udev:/run/udev:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"

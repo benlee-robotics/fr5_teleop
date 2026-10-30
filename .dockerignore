@@ -1,0 +1,18 @@
+# Whitelist: the vendored SDK directory is ~450 MB, so send only what the
+# image needs. Everything else stays out of the build context.
+*
+
+!teleop
+!web
+!tests
+!config.yaml
+!config_bimanual.yaml
+!pyproject.toml
+!requirements.txt
+!requirements-lock.txt
+!requirements-dev.txt
+!requirements-camera.txt
+!fairino-python-sdk-2.2.8_robot_v3.9.8/linux/fairino/Robot.py
+
+**/__pycache__
+**/*.py[cod]
